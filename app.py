@@ -2,7 +2,6 @@ import streamlit as st
 from rag import load_document, split_docs, create_db, ask_question
 from extract import extract_data
 
-# 👇 PASTE FROM HERE
 st.title("🚚 AI Document Assistant")
 
 file = st.file_uploader("Upload PDF", type=["pdf"])
@@ -36,7 +35,6 @@ if file:
             st.write("### 📊 Confidence:")
             st.write(confidence)
 
-# 👇 EXTRACTION BUTTON
 if "docs" in st.session_state:
     if st.button("Extract Structured Data"):
         full_text = " ".join([doc.page_content for doc in st.session_state["docs"]])
