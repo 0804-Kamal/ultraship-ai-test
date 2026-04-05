@@ -10,7 +10,7 @@ db = None
 docs = None
 
 
-# 🚀 Upload API
+# Upload API
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     global db, docs
@@ -25,7 +25,7 @@ async def upload(file: UploadFile = File(...)):
     return {"message": "File uploaded and processed successfully"}
 
 
-# 🤖 Ask API
+# Ask API
 @app.post("/ask")
 async def ask(query: str):
     global db
@@ -41,7 +41,7 @@ async def ask(query: str):
     }
 
 
-# 📦 Extract API
+# Extract API
 @app.get("/extract")
 async def extract():
     global docs
