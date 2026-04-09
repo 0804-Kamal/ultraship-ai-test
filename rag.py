@@ -1,74 +1,104 @@
-# -------- IMPORTS --------
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import CharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-
 import re
 
 
-# -------- 1. LOAD DOCUMENT --------
-def load_document(path):
-    loader = PyPDFLoader(path)
-    return loader.load()
+# -------------------------------
+# Load PDF
+# -------------------------------
+def load_document(file_path):
+    loader = PyPDFLoader(file_path)
+    documents = loader.load()
+    return documents
 
 
-# -------- 2. SPLIT DOCUMENT --------
+# -------------------------------
+# Split into chunks
+# -------------------------------
 def split_docs(documents):
-    splitter = CharacterTextSplitter(
+    splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=50
     )
-    return splitter.split_documents(documents)
+    chunks = splitter.split_documents(documents)
+    return chunks
 
 
-# -------- 3. CREATE VECTOR DB --------
+# -------------------------------
+# Create Vector DB
+# -------------------------------
 def create_db(chunks):
-    embeddings = HuggingFaceEmbeddings()
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
     db = FAISS.from_documents(chunks, embeddings)
     return db
 
 
-# -------- 4. ASK QUESTION (FINAL CLEAN VERSION) --------
+# -------------------------------
+# Ask Question (FINAL VERSION)
+# -------------------------------
 def ask_question(db, query):
-    retriever = db.as_retriever(search_kwargs={"k": 3})
 
-    docs = retriever.invoke(query)
+    docs = db.similarity_search(query, k=5)
 
-    if not docs:
-        return "Not found in document", "", 0.0
-
-    # Combine context
+    # Combine and clean context
     context = " ".join([doc.page_content for doc in docs])
+    context = re.sub(r'\s+', ' ', context)
 
-    # -------- RULE-BASED EXTRACTION --------
-    answer = "Not found"
+    query_lower = query.lower()
 
-    # Rate
-    match = re.search(r"\$\d+\.?\d*\s?USD", context)
-    if match:
-        answer = match.group()
-
-    # Carrier name
-    elif "LOGISTICS" in query.lower():
-        match = re.search(r"SWIFT SHIFT LOGISTICS LLC", context)
+    # -------------------------------
+    # RATE
+    # -------------------------------
+    if "rate" in query_lower or "amount" in query_lower:
+        match = re.search(r"\$\s?\d+\.\d+", context)
         if match:
-            answer = match.group()
+            return match.group().replace(" ", ""), "context", 0.95
 
-    # Weight
-    elif "weight" in query.lower():
-        match = re.search(r"\d{5,}\s?lbs", context)
-        if match:
-            answer = match.group()
-
-    # Shipment ID
-    elif "shipment" in query.lower():
+    # -------------------------------
+    # SHIPMENT ID
+    # -------------------------------
+    if "shipment" in query_lower or "id" in query_lower:
         match = re.search(r"LD\d+", context)
         if match:
-            answer = match.group()
+            return match.group(), "context", 0.95
 
-    # -------- OUTPUT --------
-    source = docs[0].page_content
-    confidence = round(min(len(docs) / 3, 1.0), 2)
+    # -------------------------------
+    # WEIGHT
+    # -------------------------------
+    if "weight" in query_lower:
+        match = re.search(r"\d+\.?\d*\s?lbs", context, re.IGNORECASE)
+        if match:
+            return match.group(), "context", 0.90
 
-    return answer, source, confidence
+    # -------------------------------
+    # DATE
+    # -------------------------------
+    if "date" in query_lower:
+        match = re.search(r"\d{2}-\d{2}-\d{4}", context)
+        if match:
+            return match.group(), "context", 0.85
+
+    # -------------------------------
+    # DELIVERY LOCATION (FIXED)
+    # -------------------------------
+    if "delivery location" in query_lower or "drop" in query_lower:
+        match = re.search(r"Drop.*?([A-Za-z]+,\s?[A-Z]{2}\s?\d{5})", context)
+        if match:
+            return match.group(1), "context", 0.90
+
+    # -------------------------------
+    # PICKUP LOCATION (BONUS)
+    # -------------------------------
+    if "pickup location" in query_lower:
+        match = re.search(r"Pickup.*?([A-Za-z]+,\s?[A-Z]{2})", context)
+        if match:
+            return match.group(1), "context", 0.90
+
+    # -------------------------------
+    # FALLBACK (SAFE SHORT)
+    # -------------------------------
+    return "Answer not found in document", "context", 0.5
